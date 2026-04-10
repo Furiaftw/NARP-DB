@@ -79,40 +79,11 @@ export default async (req) => {
           return json({ bypass: true, message: 'Admins do not need approval. Submit directly via db-admin.' });
         }
 
-        const rows = await sql.query(
-          `INSERT INTO pending_entries (table_name, entry_data, submitted_by_email, submitted_by_role, status)
-           VALUES ($1, $2, $3, $4, 'pending') RETURNING *`,
-          [table_name, JSON.stringify(entry_data), submitted_by_email, submitted_by_role]
-        );
-        return json({ success: true, entry: rows[0] }, 201);
+        return json({ error: 'Only admins can submit entries.' }, 403);
       }
 
       if (action === 'request_faction_access') {
-        const { target_uid, target_email, faction, requested_by_email, requested_by_role } = body;
-        if (!target_uid || !target_email || !faction || !requested_by_email || !requested_by_role) {
-          return json({ error: 'Missing required fields' }, 400);
-        }
-
-        // Admins can grant access directly — no pending needed
-        if (requested_by_role === 'admin') {
-          return json({ bypass: true, message: 'Admins can grant access directly.' });
-        }
-
-        // Check for existing pending request
-        const existing = await sql.query(
-          `SELECT id FROM pending_faction_access WHERE target_uid = $1 AND faction = $2 AND status = 'pending'`,
-          [target_uid, faction]
-        );
-        if (existing.length > 0) {
-          return json({ error: 'A pending request already exists for this user and faction.' }, 409);
-        }
-
-        const rows = await sql.query(
-          `INSERT INTO pending_faction_access (target_uid, target_email, faction, requested_by_email, requested_by_role, status)
-           VALUES ($1, $2, $3, $4, $5, 'pending') RETURNING *`,
-          [target_uid, target_email, faction, requested_by_email, requested_by_role]
-        );
-        return json({ success: true, request: rows[0] }, 201);
+        return json({ error: 'Only admins can manage faction access.' }, 403);
       }
 
       return json({ error: 'Invalid action for POST' }, 400);
@@ -147,89 +118,40 @@ export default async (req) => {
           return json({ success: true, action: 'denied' });
         }
 
-        // Approve logic
-        let publishedRow = null;
-        let adminApprovalPending = false;
+        // Approve logic — admin only
+        const entryData = JSON.parse(entry.entry_data);
+        const tableName = entry.table_name;
 
-        if (approved_by_role === 'admin') {
-          // Admin approval: publish immediately
-          const entryData = JSON.parse(entry.entry_data);
-          const tableName = entry.table_name;
-
-          // Insert into the actual table
-          const cols = Object.keys(entryData);
-          const vals = Object.values(entryData).map(v => String(v).trim());
-          const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-          const insertQuery = `INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
-          const inserted = await sql.query(insertQuery, vals);
-          publishedRow = inserted[0];
-
-          await sql.query(
-            `UPDATE pending_entries SET status = 'approved', approved_by_email = $1, approved_by_role = $2, admin_approval_pending = '', resolved_at = NOW() WHERE id = $3`,
-            [approved_by_email, approved_by_role, Number(id)]
-          );
-        } else if (approved_by_role === 'staff') {
-          // Staff-to-staff approval: cannot approve own submission
-          if (approved_by_email === entry.submitted_by_email) {
-            return json({ error: 'You cannot approve your own submission.' }, 403);
-          }
-
-          // Publish with [Admin Approval Pending] tag
-          const entryData = JSON.parse(entry.entry_data);
-          const tableName = entry.table_name;
-
-          // Add [Admin Approval Pending] prefix to the name
-          if (entryData.name) {
-            entryData.name = `[Admin Approval Pending] ${entryData.name}`;
-          }
-          entryData.staff_review = 'Yes';
-
-          const cols = Object.keys(entryData);
-          const vals = Object.values(entryData).map(v => String(v).trim());
-          const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
-          const insertQuery = `INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
-          const inserted = await sql.query(insertQuery, vals);
-          publishedRow = inserted[0];
-          adminApprovalPending = true;
-
-          await sql.query(
-            `UPDATE pending_entries SET status = 'approved', approved_by_email = $1, approved_by_role = $2, admin_approval_pending = 'yes', resolved_at = NOW() WHERE id = $3`,
-            [approved_by_email, approved_by_role, Number(id)]
-          );
+        if (approved_by_role !== 'admin') {
+          return json({ error: 'Only admins can approve entries.' }, 403);
         }
+
+        const cols = Object.keys(entryData);
+        const vals = Object.values(entryData).map(v => String(v).trim());
+        const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+        const insertQuery = `INSERT INTO ${tableName} (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`;
+        const inserted = await sql.query(insertQuery, vals);
+        const publishedRow = inserted[0];
+
+        await sql.query(
+          `UPDATE pending_entries SET status = 'approved', approved_by_email = $1, approved_by_role = $2, resolved_at = NOW() WHERE id = $3`,
+          [approved_by_email, approved_by_role, Number(id)]
+        );
 
         return json({
           success: true,
           action: 'approved',
-          admin_approval_pending: adminApprovalPending,
           published_row: publishedRow,
         });
-      }
-
-      if (action === 'clear_admin_pending') {
-        // Admin clears the [Admin Approval Pending] tag from a published entry
-        const { row_id, table_name } = body;
-        if (!row_id || !table_name) {
-          return json({ error: 'Missing row_id or table_name' }, 400);
-        }
-
-        const rows = await sql.query(`SELECT * FROM ${table_name} WHERE id = $1`, [Number(row_id)]);
-        if (rows.length === 0) return json({ error: 'Row not found' }, 404);
-
-        const row = rows[0];
-        const updatedName = (row.name || '').replace('[Admin Approval Pending] ', '');
-        await sql.query(
-          `UPDATE ${table_name} SET name = $1, staff_review = '' WHERE id = $2 RETURNING *`,
-          [updatedName, Number(row_id)]
-        );
-
-        return json({ success: true, action: 'admin_pending_cleared' });
       }
 
       if (action === 'resolve_faction_request') {
         const { decision, approved_by_email, approved_by_role } = body;
         if (!decision || !approved_by_email || !approved_by_role) {
           return json({ error: 'Missing required fields' }, 400);
+        }
+        if (approved_by_role !== 'admin') {
+          return json({ error: 'Only admins can resolve faction access requests.' }, 403);
         }
 
         const requests = await sql.query(
@@ -248,42 +170,17 @@ export default async (req) => {
           return json({ success: true, action: 'denied' });
         }
 
-        // Approve
-        if (approved_by_role === 'admin') {
-          // Admin approval: grant immediately
-          await sql.query(
-            `UPDATE pending_faction_access SET status = 'approved', approved_by_email = $1, approved_by_role = $2, resolved_at = NOW() WHERE id = $3`,
-            [approved_by_email, approved_by_role, Number(id)]
-          );
-          return json({
-            success: true,
-            action: 'approved',
-            grant_access: true,
-            target_uid: request.target_uid,
-            faction: request.faction,
-          });
-        }
-
-        if (approved_by_role === 'staff') {
-          // Staff cannot approve own request
-          if (approved_by_email === request.requested_by_email) {
-            return json({ error: 'You cannot approve your own request.' }, 403);
-          }
-
-          await sql.query(
-            `UPDATE pending_faction_access SET status = 'approved', approved_by_email = $1, approved_by_role = $2, resolved_at = NOW() WHERE id = $3`,
-            [approved_by_email, approved_by_role, Number(id)]
-          );
-          return json({
-            success: true,
-            action: 'approved',
-            grant_access: true,
-            target_uid: request.target_uid,
-            faction: request.faction,
-          });
-        }
-
-        return json({ error: 'Insufficient permissions' }, 403);
+        await sql.query(
+          `UPDATE pending_faction_access SET status = 'approved', approved_by_email = $1, approved_by_role = $2, resolved_at = NOW() WHERE id = $3`,
+          [approved_by_email, approved_by_role, Number(id)]
+        );
+        return json({
+          success: true,
+          action: 'approved',
+          grant_access: true,
+          target_uid: request.target_uid,
+          faction: request.faction,
+        });
       }
 
       return json({ error: 'Invalid action for PUT' }, 400);

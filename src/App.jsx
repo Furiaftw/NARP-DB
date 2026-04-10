@@ -645,7 +645,7 @@ function App() {
 
   const visibleFactions = useMemo(() => {
     if (!currentUser) return [];
-    if (currentUser.role === 'admin' || currentUser.role === 'staff') return ALL_FACTIONS;
+    if (currentUser.role === 'admin') return ALL_FACTIONS;
     return currentUser.allowedFactions || [];
   }, [currentUser, ALL_FACTIONS]);
 
@@ -738,7 +738,7 @@ function App() {
   }, [fetchUserProfile]);
 
   useEffect(() => {
-    if (currentUser?.role !== 'admin' && currentUser?.role !== 'staff') { setAllUsers([]); return; }
+    if (currentUser?.role !== 'admin') { setAllUsers([]); return; }
     fetchAllUsers();
   }, [currentUser?.role, fetchAllUsers]);
 
@@ -794,7 +794,7 @@ function App() {
         const profile = mapUser(data.user);
         setCurrentUser(profile);
         setLoginMessage(null);
-        setView(profile.role === 'admin' ? 'admin_dashboard' : profile.role === 'staff' ? 'manage_data' : 'browser');
+        setView(profile.role === 'admin' ? 'admin_dashboard' : 'browser');
       }
     } catch (err) {
       setLoginMessage({ type: 'error', text: err.message || 'An error occurred.' });
@@ -880,15 +880,7 @@ function App() {
     if (!currentUser) return [];
     const isSuperAdmin = currentUser.email === SUPER_ADMIN_EMAIL;
     if (isSuperAdmin) {
-      // Super admin can promote/demote anyone to any level
-      if (targetRole === 'user') return ['staff', 'admin'];
-      if (targetRole === 'staff') return ['admin'];
-      if (targetRole === 'admin') return []; // already highest (below super)
-      return [];
-    }
-    if (currentUser.role === 'admin') {
-      // Admin can promote users to staff only
-      if (targetRole === 'user') return ['staff'];
+      if (targetRole === 'user') return ['admin'];
       return [];
     }
     return [];
@@ -898,13 +890,7 @@ function App() {
     if (!currentUser) return [];
     const isSuperAdmin = currentUser.email === SUPER_ADMIN_EMAIL;
     if (isSuperAdmin) {
-      if (targetRole === 'admin' && targetEmail !== SUPER_ADMIN_EMAIL) return ['staff', 'user'];
-      if (targetRole === 'staff') return ['user'];
-      return [];
-    }
-    if (currentUser.role === 'admin') {
-      // Standard admins can demote staff to user, cannot demote other admins
-      if (targetRole === 'staff') return ['user'];
+      if (targetRole === 'admin' && targetEmail !== SUPER_ADMIN_EMAIL) return ['user'];
       return [];
     }
     return [];
@@ -926,7 +912,7 @@ function App() {
     setApprovalsLoading(false);
   };
 
-  // Submit a pending jutsu entry (for staff)
+  // Submit a pending entry
   const handleSubmitPendingEntry = async (tableName, entryData) => {
     try {
       const res = await fetch(`${APPROVALS_API_URL}?action=submit_entry`, {
@@ -968,7 +954,7 @@ function App() {
     }
   };
 
-  // Request faction access (staff submits for approval)
+  // Request faction access
   const handleRequestFactionAccess = async (targetUid, targetEmail, faction) => {
     try {
       const res = await fetch(`${APPROVALS_API_URL}?action=request_faction_access`, {
@@ -1220,22 +1206,6 @@ function App() {
         payload.must_learn_ic = payload.must_learn_ic === 'Yes' ? 'Yes' : '';
       }
 
-      // Staff submitting to jutsu-like tables must go through approval
-      if (currentUser?.role === 'staff' && isNew) {
-        try {
-          const result = await handleSubmitPendingEntry(manageTable, payload);
-          setManageSuccess('Draft submitted for approval! An Admin or another Staff member must approve before it is published.');
-          setEditingRow(null);
-          setFormData({});
-          setManageLoading(false);
-          return;
-        } catch (err) {
-          setManageError(err.message);
-          setManageLoading(false);
-          return;
-        }
-      }
-
       const res = await fetch(url, {
         method: isNew ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1300,14 +1270,14 @@ function App() {
 
   // Load manage rows when switching to manage view
   useEffect(() => {
-    if (view === 'manage_data' && (currentUser?.role === 'admin' || currentUser?.role === 'staff')) {
+    if (view === 'manage_data' && currentUser?.role === 'admin') {
       fetchManageRows(manageTable);
     }
   }, [view]);
 
   // Load pending approvals when viewing admin dashboard
   useEffect(() => {
-    if ((view === 'admin_dashboard' || view === 'manage_data') && (currentUser?.role === 'admin' || currentUser?.role === 'staff')) {
+    if ((view === 'admin_dashboard' || view === 'manage_data') && currentUser?.role === 'admin') {
       fetchPendingApprovals();
     }
   }, [view, currentUser?.role]);
@@ -1787,14 +1757,14 @@ function App() {
                 <div className="bg-amber-100 p-2 rounded-full text-amber-600"><Clock size={20} /></div>
                 <div>
                   <h3 className="font-bold text-slate-800">Pending Database Entries ({pendingEntries.length})</h3>
-                  <p className="text-xs text-slate-500">Staff submissions awaiting approval before publication.</p>
+                  <p className="text-xs text-slate-500">Submissions awaiting admin approval before publication.</p>
                 </div>
               </div>
               <div className="space-y-3">
                 {pendingEntries.map(entry => {
                   let entryData = {};
                   try { entryData = JSON.parse(entry.entry_data); } catch {}
-                  const canApproveThis = currentUser?.role === 'admin' || (currentUser?.role === 'staff' && currentUser?.email !== entry.submitted_by_email);
+                  const canApproveThis = currentUser?.role === 'admin';
                   return (
                     <div key={entry.id} className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                       <div className="flex justify-between items-start mb-2">
@@ -1810,13 +1780,10 @@ function App() {
                               <button onClick={() => handleResolveEntry(entry.id, 'deny').catch(err => setManageError(err.message))} className="bg-red-100 text-red-700 hover:bg-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"><XCircle size={14} /> Deny</button>
                             </>
                           ) : (
-                            <span className="text-xs text-slate-400 italic">Awaiting other reviewer</span>
+                            <span className="text-xs text-slate-400 italic">Awaiting admin review</span>
                           )}
                         </div>
                       </div>
-                      {currentUser?.role === 'staff' && currentUser?.email !== entry.submitted_by_email && (
-                        <p className="text-[10px] text-amber-700 mt-1">Staff approval will publish with [Admin Approval Pending] tag.</p>
-                      )}
                       <div className="flex flex-wrap gap-1 mt-2">
                         {Object.entries(entryData).filter(([k, v]) => v && k !== 'name' && k !== 'slots').map(([k, v]) => (
                           <span key={k} className="px-2 py-0.5 rounded text-[10px] bg-white border border-amber-200 text-slate-600" title={`${k}: ${v}`}>{k}: {String(v).substring(0, 30)}</span>
@@ -1841,7 +1808,7 @@ function App() {
               </div>
               <div className="space-y-3">
                 {pendingFactionRequests.map(req => {
-                  const canApproveThis = currentUser?.role === 'admin' || (currentUser?.role === 'staff' && currentUser?.email !== req.requested_by_email);
+                  const canApproveThis = currentUser?.role === 'admin';
                   return (
                     <div key={req.id} className="bg-purple-50 border border-purple-200 rounded-xl p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                       <div>
@@ -1871,23 +1838,22 @@ function App() {
               <div className="bg-indigo-100 p-2 rounded-full text-indigo-600"><BookOpen size={20} /></div>
               <div>
                 <h3 className="font-bold text-slate-800">Role Hierarchy & Permissions</h3>
-                <p className="text-xs text-slate-500">Four-tier role system with approval workflows.</p>
+                <p className="text-xs text-slate-500">Two-tier role system with admin control.</p>
               </div>
             </div>
             <div className="space-y-3 text-sm text-slate-700">
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <p className="font-bold text-slate-800 mb-2">Role Permissions:</p>
                 <ul className="space-y-1.5 text-xs">
-                  <li className="flex items-center gap-2"><Shield size={14} className="text-indigo-600 shrink-0" /> <strong>Admin</strong> — Manage users, approve entries directly, grant faction access. Can promote Users to Staff and demote Staff to Users.</li>
-                  <li className="flex items-center gap-2"><UserCheck size={14} className="text-cyan-600 shrink-0" /> <strong>Staff</strong> — Can manage data (entries require approval). Can request faction access (requires second approval).</li>
+                  <li className="flex items-center gap-2"><Shield size={14} className="text-indigo-600 shrink-0" /> <strong>Admin</strong> — Manage users, approve entries, grant/revoke faction access directly.</li>
                   <li className="flex items-center gap-2"><Key size={14} className="text-purple-600 shrink-0" /> <strong>User</strong> — Can view faction secrets assigned to them. Browse-only access.</li>
                 </ul>
               </div>
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                 <p className="font-bold text-slate-800 mb-2">Approval Workflows:</p>
                 <ul className="space-y-1.5 text-xs">
-                  <li><strong>Jutsu Entries:</strong> Staff submissions require approval. Admin approval publishes immediately. Staff-to-staff approval publishes with [Admin Approval Pending] tag.</li>
-                  <li><strong>Faction Secrets:</strong> Admins can grant access directly. Staff must have a second Staff member or Admin approve the request.</li>
+                  <li><strong>Database Entries:</strong> Admin approval publishes immediately.</li>
+                  <li><strong>Faction Secrets:</strong> Admins can grant or revoke access directly.</li>
                 </ul>
               </div>
             </div>
@@ -1915,8 +1881,8 @@ function App() {
             {approvedUsers.map(user => {
               const promoteOptions = canPromote(user.role, user.email);
               const demoteOptions = canDemote(user.role, user.email);
-              const roleColor = user.role === 'admin' ? 'bg-indigo-100 text-indigo-600' : user.role === 'staff' ? 'bg-cyan-100 text-cyan-600' : 'bg-purple-100 text-purple-600';
-              const roleIcon = user.role === 'admin' ? <Shield size={20} /> : user.role === 'staff' ? <UserCheck size={20} /> : <Key size={20} />;
+              const roleColor = user.role === 'admin' ? 'bg-indigo-100 text-indigo-600' : 'bg-purple-100 text-purple-600';
+              const roleIcon = user.role === 'admin' ? <Shield size={20} /> : <Key size={20} />;
 
               return (
               <div key={user.uid} className="bg-white border border-slate-200 shadow-sm rounded-xl p-4 md:p-5">
@@ -1975,12 +1941,10 @@ function App() {
                     )}
                   </div>
                 </div>
-                {/* Faction access for users */}
-                {user.role === 'user' && (
+                  {user.role === 'user' && (
                   <div className="mt-4 pt-4 border-t border-slate-100">
                     <p className="text-xs font-bold text-slate-500 uppercase mb-3">
                       Grant Faction Secrets:
-                      {currentUser?.role === 'staff' && <span className="normal-case font-normal text-amber-600 ml-1">(requires second approval)</span>}
                     </p>
                     <div className="flex flex-wrap gap-2.5">
                       {ALL_FACTIONS.map(faction => {
@@ -1993,18 +1957,7 @@ function App() {
                               checked={hasAccess || false}
                               disabled={hasPendingRequest}
                               onChange={() => {
-                                if (currentUser?.role === 'admin') {
-                                  // Admin grants directly
-                                  handleToggleFaction(user.uid, faction);
-                                } else if (currentUser?.role === 'staff') {
-                                  if (hasAccess) {
-                                    // Revoking: staff can request revocation via approval too
-                                    handleRequestFactionAccess(user.uid, user.email, faction).catch(err => console.error(err));
-                                  } else {
-                                    // Staff submits request for approval
-                                    handleRequestFactionAccess(user.uid, user.email, faction).catch(err => console.error(err));
-                                  }
-                                }
+                                handleToggleFaction(user.uid, faction);
                               }}
                               className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
                             />
@@ -2021,7 +1974,6 @@ function App() {
                   <div className="mt-4 pt-4 border-t border-slate-100">
                     <p className="text-xs font-bold text-slate-500 uppercase mb-3">
                       Grant Faction Secrets:
-                      {currentUser?.role === 'staff' && <span className="normal-case font-normal text-amber-600 ml-1">(requires second approval)</span>}
                     </p>
                     <div className="flex flex-wrap gap-2.5">
                       {ALL_FACTIONS.map(faction => {
@@ -2034,11 +1986,7 @@ function App() {
                               checked={hasAccess || false}
                               disabled={hasPendingRequest}
                               onChange={() => {
-                                if (currentUser?.role === 'admin') {
-                                  handleToggleFaction(user.uid, faction);
-                                } else if (currentUser?.role === 'staff') {
-                                  handleRequestFactionAccess(user.uid, user.email, faction).catch(err => console.error(err));
-                                }
+                                handleToggleFaction(user.uid, faction);
                               }}
                               className="rounded text-purple-600 focus:ring-purple-500 w-3.5 h-3.5"
                             />
@@ -2222,13 +2170,6 @@ function App() {
           {manageError && (
             <div className="mb-4 p-3 rounded-lg text-sm bg-red-50 text-red-800 border border-red-200 flex items-center gap-2">
               <AlertCircle size={16} /> {manageError}
-            </div>
-          )}
-
-          {/* Pending entries notification for staff */}
-          {currentUser?.role === 'staff' && pendingEntries.filter(e => e.submitted_by_email === currentUser.email).length > 0 && (
-            <div className="mb-4 p-3 rounded-lg text-sm bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-2">
-              <Clock size={16} /> You have {pendingEntries.filter(e => e.submitted_by_email === currentUser.email).length} pending submission(s) awaiting approval.
             </div>
           )}
 
@@ -2551,19 +2492,19 @@ function App() {
           {currentUser ? (
             <>
               <span className="text-xs text-slate-400 hidden lg:inline mx-1">{currentUser.nickname || currentUser.email}</span>
-              {(currentUser.role === 'admin' || currentUser.role === 'staff') && (
+              {currentUser.role === 'admin' && (
                 <button onClick={() => setView('admin_dashboard')} className={`text-xs px-3 py-1.5 font-bold rounded-lg transition-colors ${view === 'admin_dashboard' ? 'bg-indigo-900 text-indigo-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                   <span className="hidden sm:inline">Dashboard</span>
                   <span className="sm:hidden"><UsersIcon size={14} /></span>
                 </button>
               )}
-              {(currentUser.role === 'admin' || currentUser.role === 'staff') && (
+              {currentUser.role === 'admin' && (
                 <button onClick={() => setView('admin_data')} className={`text-xs px-3 py-1.5 font-bold rounded-lg transition-colors ${view === 'admin_data' ? 'bg-cyan-900 text-cyan-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                   <span className="hidden sm:inline">API Data</span>
                   <span className="sm:hidden"><Database size={14} /></span>
                 </button>
               )}
-              {(currentUser.role === 'admin' || currentUser.role === 'staff') && (
+              {currentUser.role === 'admin' && (
                 <button onClick={() => setView('manage_data')} className={`text-xs px-3 py-1.5 font-bold rounded-lg transition-colors ${view === 'manage_data' ? 'bg-indigo-700 text-indigo-200' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                   <span className="hidden sm:inline">Manage</span>
                   <span className="sm:hidden"><Edit2 size={14} /></span>
@@ -2581,9 +2522,9 @@ function App() {
       {view === 'clan_slots' && (isDataEmpty ? renderEmptyState() : renderClanSlots())}
       {view === 'battlemodes' && (isDataEmpty ? renderEmptyState() : renderBattlemodes())}
       {view === 'login' && renderLogin()}
-      {view === 'admin_dashboard' && (currentUser?.role === 'admin' || currentUser?.role === 'staff') && renderAdminDashboard()}
-      {view === 'admin_data' && (currentUser?.role === 'admin' || currentUser?.role === 'staff') && renderAdminData()}
-      {view === 'manage_data' && (currentUser?.role === 'admin' || currentUser?.role === 'staff') && renderManageData()}
+      {view === 'admin_dashboard' && currentUser?.role === 'admin' && renderAdminDashboard()}
+      {view === 'admin_data' && currentUser?.role === 'admin' && renderAdminData()}
+      {view === 'manage_data' && currentUser?.role === 'admin' && renderManageData()}
 
       <div className="bg-slate-900 text-center py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest z-20 shrink-0 border-t border-slate-800">
         Credits: Hexagon & A Road Sign — {APP_VERSION}

@@ -21,7 +21,7 @@ export default async (req) => {
     const sql = neon(databaseUrl);
     await ensureUsersTable(sql);
     const requester = await getRequester(sql, payload.uid);
-    if (!requester || (requester.role !== 'admin' && requester.role !== 'staff')) {
+    if (!requester || requester.role !== 'admin') {
       return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 

@@ -9,6 +9,12 @@
 [build.environment]
   VITE_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxJepmT3RAyAHb3NMe2z67iQn8UHr8HJXQgLfn0HJg0dzKUfth6TEajvpgAgu5cWbVctg/exec"
   SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+  # Google OAuth — set these in the Netlify dashboard (Site settings → Environment variables):
+  #   GOOGLE_CLIENT_ID      — OAuth 2.0 client ID (used by the callback function)
+  #   GOOGLE_CLIENT_SECRET  — OAuth 2.0 client secret (used by the callback function)
+  #   VITE_GOOGLE_CLIENT_ID — same value as GOOGLE_CLIENT_ID (embedded in the frontend build)
+  # Authorised redirect URI to register in Google Cloud Console:
+  #   https://<your-netlify-site>/api/auth/google/callback
 
 # SPA fallback: serve index.html for all unmatched routes (except API)
 [[redirects]]

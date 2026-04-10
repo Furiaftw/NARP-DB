@@ -717,9 +717,57 @@ function App() {
     }
   }, []);
 
-  // Check auth state on mount using stored token
+  // Check auth state on mount using stored token; also handle Google OAuth redirect
   useEffect(() => {
     const checkAuth = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const googleToken = params.get('google_token');
+      const googleError = params.get('google_error');
+      const returnedState = params.get('state') || '';
+
+      // Clean Google OAuth params from the URL without a page reload
+      if (googleToken || googleError) {
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+      }
+
+      if (googleError) {
+        if (googleError === 'pending') {
+          setLoginMessage({ type: 'pending', text: 'Account created via Google. An admin must approve your access before you can log in.' });
+        } else if (googleError === 'denied') {
+          setLoginMessage({ type: 'error', text: 'Your access request was denied by an admin.' });
+        } else {
+          setLoginMessage({ type: 'error', text: `Google sign-in failed: ${googleError}` });
+        }
+        setView('login');
+        setAuthLoading(false);
+        return;
+      }
+
+      if (googleToken) {
+        // Validate state to prevent CSRF
+        const expectedState = sessionStorage.getItem('google_oauth_state');
+        sessionStorage.removeItem('google_oauth_state');
+        if (expectedState && returnedState !== expectedState) {
+          setLoginMessage({ type: 'error', text: 'Google sign-in failed: invalid state. Please try again.' });
+          setView('login');
+          setAuthLoading(false);
+          return;
+        }
+        setAuthToken(googleToken);
+        const profile = await fetchUserProfile();
+        if (profile && profile.status === 'approved') {
+          setCurrentUser(profile);
+          setView(profile.role === 'admin' ? 'admin_dashboard' : 'browser');
+        } else {
+          clearAuthToken();
+          setLoginMessage({ type: 'error', text: 'Could not load profile after Google sign-in.' });
+          setView('login');
+        }
+        setAuthLoading(false);
+        return;
+      }
+
       const token = getAuthToken();
       if (token) {
         const profile = await fetchUserProfile();
@@ -736,6 +784,27 @@ function App() {
     };
     checkAuth();
   }, [fetchUserProfile]);
+
+  const handleGoogleSignIn = () => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setLoginMessage({ type: 'error', text: 'Google sign-in is not configured on this deployment.' });
+      return;
+    }
+    const state = crypto.randomUUID();
+    sessionStorage.setItem('google_oauth_state', state);
+    const redirectUri = `${window.location.origin}/api/auth/google/callback`;
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      access_type: 'online',
+      prompt: 'select_account',
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  };
 
   useEffect(() => {
     if (currentUser?.role !== 'admin') { setAllUsers([]); return; }
@@ -1700,6 +1769,30 @@ function App() {
           <div className={`mb-4 p-3 rounded-lg text-sm ${loginMessage.type === 'error' ? 'bg-red-50 text-red-800' : loginMessage.type === 'pending' ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-800'}`}>{loginMessage.text}</div>
         )}
 
+        {/* Google sign-in */}
+        {import.meta.env.VITE_GOOGLE_CLIENT_ID && (
+          <>
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              className="w-full flex items-center justify-center gap-3 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold py-3 rounded-xl transition-colors mb-4 shadow-sm"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+                <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+                <path d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+              </svg>
+              Sign in with Google
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-slate-200" />
+              <span className="text-xs text-slate-400 font-medium">or</span>
+              <div className="flex-1 h-px bg-slate-200" />
+            </div>
+          </>
+        )}
+
         <form onSubmit={handleLoginSubmit} className="space-y-4">
           <input type="email" required placeholder="Email Address" className="w-full bg-slate-50 border py-3 px-4 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} disabled={loginLoading} />
           <input type="password" required minLength={6} placeholder={isRequesting ? "Create Password (min 6)" : "Password"} className="w-full bg-slate-50 border py-3 px-4 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} disabled={loginLoading} />
@@ -1941,7 +2034,7 @@ function App() {
                     )}
                   </div>
                 </div>
-                  {user.role === 'user' && (
+                {user.role === 'user' && (
                   <div className="mt-4 pt-4 border-t border-slate-100">
                     <p className="text-xs font-bold text-slate-500 uppercase mb-3">
                       Grant Faction Secrets:

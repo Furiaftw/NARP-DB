@@ -38,7 +38,7 @@ const SPECIALIZATION_OPTIONS = ['Bukijutsu', 'Fuinjutsu', 'Genjutsu', 'Medical N
 const MANAGE_TABLES = {
   jutsus: { label: 'Jutsus', fields: [
     { key: 'name', label: 'Jutsu Name', required: true },
-    { key: 'nature', label: 'Nature Type', type: 'multi-select', options: ['Fire', 'Water', 'Earth', 'Wind', 'Lightning', 'Yin', 'Yang', 'N/A'] },
+    { key: 'nature', label: 'Nature Type', type: 'multi-select', options: ['Fire', 'Water', 'Earth', 'Wind', 'Lightning', 'Yin', 'Yang', 'Sound', 'N/A'] },
     { key: 'rank', label: 'Rank', type: 'multi-select', options: ['E', 'D', 'C', 'B', 'A', 'S'] },
     { key: 'cost', label: 'Cost', hidden: true },
     { key: 'types', label: 'Jutsu Types', type: 'multi-select', options: ['1 Post', 'Continuous', 'Multi-Post'] },
@@ -55,7 +55,7 @@ const MANAGE_TABLES = {
     { key: 'name', label: 'Name', required: true },
     { key: 'category', label: 'Category', type: 'multi-select', options: ['Primary', 'Secondary', 'Tertiary'] },
     { key: 'bloodline', label: 'Bloodline', type: 'bloodline-select', optional: true },
-    { key: 'nature', label: 'Nature(s)', type: 'multi-select', options: ['Fire', 'Water', 'Earth', 'Wind', 'Lightning', 'Yin', 'Yang', 'N/A'] },
+    { key: 'nature', label: 'Nature(s)', type: 'multi-select', options: ['Fire', 'Water', 'Earth', 'Wind', 'Lightning', 'Yin', 'Yang', 'Sound', 'N/A'] },
     { key: 'doc_link', label: 'Doc Link' },
     { key: 'limited', label: 'Limited', type: 'checkbox' },
     { key: 'slots', label: 'Slots', type: 'slots', hidden_unless: 'limited' },
@@ -367,7 +367,7 @@ function FactionSelect({ value, onChange }) {
 // ============================================================
 // STATIC CONSTANTS
 // ============================================================
-const NATURES = ["Fire", "Water", "Lightning", "Earth", "Wind", "Yang", "Yin"];
+const NATURES = ["Fire", "Water", "Lightning", "Earth", "Wind", "Yang", "Yin", "Sound"];
 const JUTSU_TYPES = ["1 Post", "Continuous", "Multi-Post"];
 const RANKS = ["E", "D", "C", "B", "A", "S"];
 const ORIGIN = ["Canon", "Custom"];
@@ -391,6 +391,7 @@ const getNatureColor = (nature) => {
     "Wind": "bg-green-100 text-green-800 border-green-200",
     "Yang": "bg-amber-100 text-amber-900 border-amber-300",
     "Yin": "bg-purple-100 text-purple-900 border-purple-300",
+    "Sound": "bg-pink-100 text-pink-800 border-pink-200",
   };
   return colors[nature] || "bg-slate-200 text-slate-800 border-slate-300";
 };
